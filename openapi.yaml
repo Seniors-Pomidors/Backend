@@ -1,0 +1,498 @@
+openapi: 3.0.3
+info:
+  title: ProductivityPal API
+  description: AI-помощник для умного общения и управления задачами
+  version: 1.0.0
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        privacy_mode:
+          type: string
+          enum: [standard, private]
+    
+    Chat:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    
+    SentimentAnalysis:
+      type: object
+      properties:
+        chat_id:
+          type: string
+        overall_score:
+          type: number
+          format: float
+        sentiment_breakdown:
+          type: object
+          properties:
+            positive:
+              type: number
+            neutral:
+              type: number
+            negative:
+              type: number
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []
+
+paths:
+  # Аутентификация
+  /auth/register:
+    post:
+      summary: "Регистрация пользователя"
+      description: "Создание нового аккаунта с выбором режима приватности"
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - username
+                - privacy_mode
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+                username:
+                  type: string
+                privacy_mode:
+                  type: string
+                  enum: [standard, private]
+      responses:
+        '201':
+          description: "Пользователь успешно зарегистрирован"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                  access_token:
+                    type: string
+        '400':
+          description: "Неверные данные"
+
+  /auth/login:
+    post:
+      summary: "Вход в систему"
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: "Успешный вход"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    default: "bearer"
+                  user_id:
+                    type: string
+        '401':
+          description: "Неверные учетные данные"
+
+  # Управление пользователями
+  /user/profile:
+    get:
+      summary: "Получить профиль пользователя"
+      tags: [users]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Данные профиля"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: "Не авторизован"
+
+    put:
+      summary: "Обновить профиль пользователя"
+      tags: [users]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                privacy_mode:
+                  type: string
+                  enum: [standard, private]
+      responses:
+        '200':
+          description: "Профиль обновлен"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  # Управление чатами
+  /chats:
+    get:
+      summary: "Получить список чатов пользователя"
+      tags: [chats]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: tags
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: "Список чатов"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Chat'
+
+  /chats/{chat_id}:
+    get:
+      summary: "Получить информацию о чате"
+      tags: [chats]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: chat_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: "Информация о чате"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Chat'
+        '404':
+          description: "Чат не найден"
+
+  # Анализ настроения в чате
+  /chats/{chat_id}/sentiment:
+    get:
+      summary: "Анализ настроения в чате"
+      description: "Возвращает анализ эмоционального фона в указанном чате за период"
+      tags: [ai, sentiment]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: chat_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: "Успешный анализ настроения"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SentimentAnalysis'
+        '403':
+          description: "Доступ запрещен (приватный режим)"
+        '404':
+          description: "Чат не найден"
+
+  # Авто-суммаризация
+  /chats/{chat_id}/summary:
+    get:
+      summary: "Суммаризация обсуждения"
+      description: "Создает краткую сводку обсуждений в чате за указанный период"
+      tags: [ai, summary]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: chat_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: "Суммаризация успешно создана"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chat_id:
+                    type: string
+                  key_points:
+                    type: array
+                    items:
+                      type: string
+                  agreements:
+                    type: array
+                    items:
+                      type: string
+                  deadlines:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        task:
+                          type: string
+                        deadline:
+                          type: string
+                          format: date-time
+        '403':
+          description: "Доступ запрещен (приватный режим)"
+
+  # Трекер обязательств
+  /reminders:
+    post:
+      summary: "Создание напоминания"
+      description: "Создает напоминание на основе распознанного обязательства"
+      tags: [reminders]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - chat_id
+                - content
+                - deadline
+              properties:
+                chat_id:
+                  type: string
+                message_id:
+                  type: string
+                content:
+                  type: string
+                deadline:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: "Напоминание успешно создано"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  chat_id:
+                    type: string
+                  content:
+                    type: string
+                  deadline:
+                    type: string
+                    format: date-time
+                  status:
+                    type: string
+                    enum: [pending, completed, cancelled]
+
+  # Интеллектуальный поиск
+  /search:
+    get:
+      summary: "Семантический поиск по сообщениям"
+      description: "Поиск по смыслу, а не точному соответствию"
+      tags: [ai, search]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "Поисковый запрос (например: 'проблемы с сервером')"
+        - name: chat_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          description: "Фильтр по конкретным чатам"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: "Результаты поиска"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        chat_id:
+                          type: string
+                        message_id:
+                          type: string
+                        relevance_score:
+                          type: number
+                          format: float
+                        snippet:
+                          type: string
+
+  # Шаблоны сообщений
+  /templates:
+    get:
+      summary: "Получить шаблоны сообщений"
+      description: "Возвращает доступные шаблоны сообщений для разных ситуаций"
+      tags: [templates]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [work, personal, formal, informal]
+      responses:
+        '200':
+          description: "Список шаблонов"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    category:
+                      type: string
+                    content:
+                      type: string
+
+  # Умные папки - тегирование чатов
+  /chats/{chat_id}/tags:
+    post:
+      summary: "Добавить тег к чату"
+      description: "Добавляет тег к чату (автоматически или вручную)"
+      tags: [ai, tags]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: chat_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tag_name
+              properties:
+                tag_name:
+                  type: string
+                confidence:
+                  type: number
+                  format: float
+      responses:
+        '200':
+          description: "Тег успешно добавлен"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Chat'
