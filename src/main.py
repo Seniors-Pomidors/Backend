@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.database.connection import engine, Base
 from src.api.endpoints import auth
 import uvicorn
 

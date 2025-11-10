@@ -6,3 +6,5 @@ passlib[argon2]==1.7.4
 sqlalchemy==1.4.46
 python-dotenv==1.0.0
 email-validator==2.1.0
+psycopg2==2.9.11
+gunicorn==21.2.0
