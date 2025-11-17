@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.api.endpoints import auth
+from src.api.endpoints import auth, chats, messages
 from src.database.connection import engine, Base
+from src.models.user import User
+from src.models.chat import Chat, ChatParticipant
+from src.models.message import Message
 import uvicorn
 
 app = FastAPI(
@@ -19,6 +22,8 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(chats.router, prefix="/api", tags=["chats"])
+app.include_router(messages.router, prefix="/api", tags=["messages"])
 
 @app.get("/")
 def read_root():

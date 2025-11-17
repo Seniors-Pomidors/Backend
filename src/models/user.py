@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, DateTime, Boolean, Integer
 from sqlalchemy.sql import func
-import uuid
+from sqlalchemy.orm import relationship
 from src.database.connection import Base
 
 class User(Base):
@@ -16,3 +16,6 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
     last_seen = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
+
+    chats = relationship("ChatParticipant", back_populates="user")
+    messages = relationship("Message", back_populates="user")
