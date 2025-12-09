@@ -6,13 +6,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",  # имя переменной окружения
+    "postgresql://postgres:mfomintsovz1503z@localhost:5432/prodpaldev"  # значение по умолчанию
+)
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def get_db_session():
     db = SessionLocal()
     try:
         yield db
