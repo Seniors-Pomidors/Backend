@@ -31,5 +31,4 @@ class ChatParticipant(Base):
     chat = relationship("Chat", back_populates="participants")
     user = relationship("User")
 
-    # Уникальный constraint - пользователь может быть в чате только один раз
     __table_args__ = (UniqueConstraint('chat_id', 'user_id', name='unique_chat_user'),)

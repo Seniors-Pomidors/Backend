@@ -17,5 +17,5 @@ class User(Base):
     last_seen = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
 
-    chats = relationship("ChatParticipant", back_populates="user")
-    messages = relationship("Message", back_populates="user")
+chats = relationship("ChatParticipant", back_populates="user")
+messages = relationship("Message", back_populates="user")

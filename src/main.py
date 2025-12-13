@@ -5,6 +5,7 @@ from src.database.connection import engine, Base
 from src.models.user import User
 from src.models.chat import Chat, ChatParticipant
 from src.models.message import Message
+from src.models.user_status import UserStatus
 import uvicorn
 
 app = FastAPI(
