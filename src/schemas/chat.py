@@ -34,3 +34,22 @@ class ChatParticipantResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ChatDeleteResponse(BaseModel):
+    message: str
+    chat_id: int
+    deleted_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ChatDeleteResponse(BaseModel):
+    success: bool
+    message: str
+    chat_id: int
+    action: str  # 'deleted', 'hidden', 'left', 'archived'
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True

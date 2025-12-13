@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import List, Optional
@@ -21,6 +21,53 @@ def create_chat(
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_db)
 ):
+    if chat_data.type == "private":
+        # Должен быть только 1 другой участник (всего 2 человека)
+        if len(chat_data.participant_ids) != 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Личный чат может быть только с одним участником"
+            )
+
+        # Проверяем, нет ли уже личного чата с этим пользователем
+        existing_private_chat = check_existing_private_chat(
+            current_user.id,
+            chat_data.participant_ids[0],
+            db
+        )
+        if existing_private_chat:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Личный чат с этим пользователем уже существует"
+            )
+
+        # 2. ГРУППОВОЙ ЧАТ (group)
+    elif chat_data.type == "group":
+        # Должно быть минимум 2 участника
+        if len(chat_data.participant_ids) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Групповой чат должен иметь минимум 2 участника"
+            )
+
+        # Можно ограничить максимальное количество
+        if len(chat_data.participant_ids) > 50:  # например
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Слишком много участников для группового чата"
+            )
+
+        # 3. КАНАЛ (channel)
+    elif chat_data.type == "channel":
+        # В канале обычно 1 создатель и много подписчиков
+        # Можно оставить без ограничений или добавить свои правила
+        pass
+
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Неизвестный тип чата. Допустимые значения: 'private', 'group', 'channel'"
+        )
     # Создаем чат
     chat = Chat(
         name=chat_data.name,
@@ -61,7 +108,8 @@ def get_my_chats(
 ):
     # Находим все чаты, где пользователь является участником
     participants = db.query(ChatParticipant).filter(
-        ChatParticipant.user_id == current_user.id
+        ChatParticipant.user_id == current_user.id,
+        ChatParticipant.is_hidden == False
     ).all()
 
     chats = []
@@ -204,3 +252,163 @@ def add_participant(
     participant_data.email = user.email
 
     return participant_data
+
+
+# src/api/endpoints/chats.py
+@router.delete("/{chat_id}", response_model=dict)
+def delete_chat(
+        chat_id: int,
+        action: str = Query("auto", description="Что сделать: hide, leave, delete",
+                            enum=["hide", "leave", "delete"]),
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Чат не найден")
+
+    participant = db.query(ChatParticipant).filter(
+        ChatParticipant.chat_id == chat_id,
+        ChatParticipant.user_id == current_user.id
+    ).first()
+
+    if not participant:
+        raise HTTPException(status_code=403, detail="Вы не состоите в этом чате")
+
+    is_creator = chat.created_by == current_user.id
+    is_admin = participant.role == "admin"
+    has_delete_rights = is_creator or is_admin
+
+    participants_count = db.query(ChatParticipant).filter(
+        ChatParticipant.chat_id == chat_id
+    ).count()
+
+
+    if action == "hide":
+        # Скрыть чат - только для личных чатов
+        if chat.type != "private" or participants_count != 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Скрыть можно только личные чаты"
+            )
+
+        participant.is_hidden = True
+        db.commit()
+
+        return {"success": True, "message": "Чат скрыт"}
+
+    elif action == "leave":
+        # Выйти из чата
+        # Если последний участник - удаляем весь чат
+        if participants_count == 1:
+            db.delete(chat)  # ПОЛНОЕ УДАЛЕНИЕ
+            db.commit()
+            return {"success": True, "message": "Вы вышли из чата. Чат удален."}
+
+        # Если не последний - просто удаляем себя из участников
+        db.delete(participant)
+
+        # Если уходил админ - назначаем нового
+        if participant.role == "admin":
+            new_admin = db.query(ChatParticipant).filter(
+                ChatParticipant.chat_id == chat_id,
+                ChatParticipant.user_id != current_user.id
+            ).first()
+            if new_admin:
+                new_admin.role = "admin"
+
+        db.commit()
+        return {"success": True, "message": "Вы вышли из чата"}
+
+    elif action == "delete":
+        # Полное удаление чата - только для админов/создателей
+        if not has_delete_rights:
+            raise HTTPException(
+                status_code=403,
+                detail="Только администратор или создатель может удалить чат"
+            )
+
+        # ПОЛНОЕ УДАЛЕНИЕ из БД
+        db.delete(chat)  # Каскадное удаление: сообщения и участники тоже удалятся
+        db.commit()
+
+        return {"success": True, "message": "Чат полностью удален"}
+
+    else:
+        raise HTTPException(status_code=400, detail="Неизвестное действие")
+
+
+# Показать скрытые чаты (только свои)
+@router.get("/hidden", response_model=List[ChatResponse])
+def get_hidden_chats(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+
+    hidden_participants = db.query(ChatParticipant).filter(
+        ChatParticipant.user_id == current_user.id,
+        ChatParticipant.is_hidden == True
+    ).all()
+
+    chats = []
+    for participant in hidden_participants:
+        chat = participant.chat
+        chat_dict = ChatResponse.from_orm(chat)
+        chat_dict.participant_count = len(chat.participants)
+        chats.append(chat_dict)
+
+    return chats
+
+
+# Показать скрытый чат (восстановить видимость)
+@router.post("/{chat_id}/unhide", response_model=dict)
+def unhide_chat(
+        chat_id: int,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+
+    participant = db.query(ChatParticipant).filter(
+        ChatParticipant.chat_id == chat_id,
+        ChatParticipant.user_id == current_user.id,
+        ChatParticipant.is_hidden == True
+    ).first()
+
+    if not participant:
+        raise HTTPException(status_code=404, detail="Скрытый чат не найден")
+
+    participant.is_hidden = False
+    db.commit()
+
+    return {"success": True, "message": "Чат снова отображается"}
+
+def check_existing_private_chat(user1_id: int, user2_id: int, db: Session):
+    """
+    Проверяет, существует ли уже личный чат между двумя пользователями
+    """
+    # Находим все чаты, где оба пользователя являются участниками
+    from sqlalchemy import and_, or_
+
+    # Находим ID чатов, где есть user1
+    user1_chats = db.query(ChatParticipant.chat_id).filter(
+        ChatParticipant.user_id == user1_id
+    ).subquery()
+
+    # Находим ID чатов, где есть user2
+    user2_chats = db.query(ChatParticipant.chat_id).filter(
+        ChatParticipant.user_id == user2_id
+    ).subquery()
+
+    # Находим пересечение (чаты, где есть оба)
+    common_chats = db.query(Chat).join(
+        ChatParticipant, Chat.id == ChatParticipant.chat_id
+    ).filter(
+        and_(
+            Chat.id.in_(user1_chats),
+            Chat.id.in_(user2_chats),
+            Chat.type == "private"
+        )
+    ).all()
+
+    return common_chats[0] if common_chats else None
