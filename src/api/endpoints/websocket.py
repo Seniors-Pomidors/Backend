@@ -108,5 +108,10 @@ async def update_user_status(user_id: int, status: str):
         else:
             user_status.status = status
             user_status.last_seen = datetime.utcnow()
-    except:
         db.commit()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+    finally:
+        db.close()

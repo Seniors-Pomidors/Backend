@@ -70,6 +70,24 @@ def login(user_data: UserLogin, db: Session = Depends(get_db)):
 
     from datetime import datetime
     user.last_seen = datetime.utcnow()
+
+    from src.models.user_status import UserStatus
+
+    user_status = db.query(UserStatus).filter(
+        UserStatus.user_id == user.id
+    ).first()
+
+    if not user_status:
+        user_status = UserStatus(
+            user_id=user.id,
+            status="online",  # или "away" пока не подключился к WS
+            device="web"
+        )
+        db.add(user_status)
+    else:
+        user_status.status = "online"
+        user_status.last_seen = datetime.utcnow()
+
     db.commit()
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
