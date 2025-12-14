@@ -63,6 +63,9 @@ async def websocket_endpoint(websocket: WebSocket):
             "timestamp": datetime.utcnow().isoformat()
         })
 
+        from src.database.connection import SessionLocal
+        db = SessionLocal()
+
         # Главный цикл получения сообщений
         while True:
             # Ждем данные от клиента
@@ -77,6 +80,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     "type": "pong",
                     "timestamp": datetime.utcnow().isoformat()
                 })
+            elif message_type == "chat_message":
+                # Получили новое сообщение от клиента
+                await handle_chat_message(data, user_id, db)
+
+            elif message_type == "subscribe_to_chat":
+                # Подписка на уведомления чата
+                chat_id = data.get("chat_id")
+                await manager.subscribe_to_chat(user_id, chat_id)
 
     except WebSocketDisconnect:
         print(f"WebSocket disconnected for user {user_id}")
@@ -115,3 +126,29 @@ async def update_user_status(user_id: int, status: str):
         db.rollback()
     finally:
         db.close()
+
+
+async def handle_chat_message(data: dict, sender_id: int, db: Session):
+    from src.models.message import Message
+    from src.api.websocket_manager import manager
+
+    message = Message(
+        chat_id=data["chat_id"],
+        user_id=sender_id,
+        content=data["content"],
+        message_type=data.get("message_type", "text")
+    )
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+
+    await manager.broadcast_to_chat({
+        "type": "new_message",
+        "message": {
+            "id": message.id,
+            "chat_id": message.chat_id,
+            "user_id": sender_id,
+            "content": message.content,
+            "created_at": message.created_at.isoformat()
+        }
+    }, message.chat_id, exclude_user_id=sender_id)

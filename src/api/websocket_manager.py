@@ -29,6 +29,23 @@ class ConnectionManager:
                 except Exception as e:
                     print(f"Error sending to user {user_id}: {e}")
 
+    async def subscribe_to_chat(self, user_id: int, chat_id: int):
+        if chat_id not in self.chat_subscriptions:
+            self.chat_subscriptions[chat_id] = []
+        if user_id not in self.chat_subscriptions[chat_id]:
+            self.chat_subscriptions[chat_id].append(user_id)
+
+    async def unsubscribe_from_chat(self, user_id: int, chat_id: int):
+        if chat_id in self.chat_subscriptions:
+            if user_id in self.chat_subscriptions[chat_id]:
+                self.chat_subscriptions[chat_id].remove(user_id)
+
+    async def send_to_chat_subscribers(self, chat_id: int, message: dict, exclude_user_id: int = None):
+        if chat_id in self.chat_subscriptions:
+            for user_id in self.chat_subscriptions[chat_id]:
+                if user_id != exclude_user_id:
+                    await self.send_personal_message(message, user_id)
+
     async def broadcast_to_chat(self, message: dict, chat_id: int, exclude_user_id: int = None):
         from src.database.connection import SessionLocal
         from src.models.chat import ChatParticipant
