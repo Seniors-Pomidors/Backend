@@ -21,9 +21,39 @@ def create_chat(
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_db)
 ):
+    # Собираем ID всех участников (по username)
+    participant_ids = []
+
+    # Валидируем и собираем ID участников
+    for username in chat_data.participant_usernames:  # <- исправлено
+        if username == current_user.username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Нельзя добавить самого себя как участника"
+            )
+
+        # Находим пользователя по username
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Пользователь с username '{username}' не найден"
+            )
+
+        # Проверяем, что пользователь активен
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Пользователь '{username}' деактивирован"
+            )
+
+        # Добавляем ID пользователя в список
+        if user.id not in participant_ids:
+            participant_ids.append(user.id)
+
     if chat_data.type == "private":
-        # Должен быть только 1 другой участник (всего 2 человека)
-        if len(chat_data.participant_ids) != 1:
+        # Для приватного чата должен быть только 1 другой участник
+        if len(participant_ids) != 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Личный чат может быть только с одним участником"
@@ -32,7 +62,7 @@ def create_chat(
         # Проверяем, нет ли уже личного чата с этим пользователем
         existing_private_chat = check_existing_private_chat(
             current_user.id,
-            chat_data.participant_ids[0],
+            participant_ids[0],
             db
         )
         if existing_private_chat:
@@ -41,33 +71,35 @@ def create_chat(
                 detail="Личный чат с этим пользователем уже существует"
             )
 
-        # 2. ГРУППОВОЙ ЧАТ (group)
     elif chat_data.type == "group":
-        # Должно быть минимум 2 участника
-        if len(chat_data.participant_ids) < 2:
+        # Должно быть минимум 2 других участника
+        if len(participant_ids) < 2:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Групповой чат должен иметь минимум 2 участника"
             )
 
         # Можно ограничить максимальное количество
-        if len(chat_data.participant_ids) > 50:  # например
+        if len(participant_ids) > 49:  # +1 создатель = максимум 50
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Слишком много участников для группового чата"
             )
 
-        # 3. КАНАЛ (channel)
     elif chat_data.type == "channel":
-        # В канале обычно 1 создатель и много подписчиков
-        # Можно оставить без ограничений или добавить свои правила
-        pass
+        # Проверяем, что есть хотя бы 1 участник
+        if len(participant_ids) < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Канал должен иметь хотя бы 1 участника"
+            )
 
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Неизвестный тип чата. Допустимые значения: 'private', 'group', 'channel'"
         )
+
     # Создаем чат
     chat = Chat(
         name=chat_data.name,
@@ -87,14 +119,13 @@ def create_chat(
     db.add(creator_participant)
 
     # Добавляем остальных участников
-    for user_id in chat_data.participant_ids:
-        if user_id != current_user.id:  # Не дублируем создателя
-            participant = ChatParticipant(
-                chat_id=chat.id,
-                user_id=user_id,
-                role="member"
-            )
-            db.add(participant)
+    for user_id in participant_ids:
+        participant = ChatParticipant(
+            chat_id=chat.id,
+            user_id=user_id,
+            role="member"
+        )
+        db.add(participant)
 
     db.commit()
     return chat
@@ -196,7 +227,7 @@ def get_chat_participants(
 @router.post("/{chat_id}/participants", response_model=ChatParticipantResponse)
 def add_participant(
         chat_id: int,
-        user_id: int,
+        username: str,
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_db)
 ):
@@ -216,7 +247,7 @@ def add_participant(
         )
 
     # Проверяем, что пользователь существует
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -227,7 +258,7 @@ def add_participant(
     existing_participant = db.query(ChatParticipant).filter(
         and_(
             ChatParticipant.chat_id == chat_id,
-            ChatParticipant.user_id == user_id
+            ChatParticipant.user_id == user.id
         )
     ).first()
 
@@ -240,7 +271,7 @@ def add_participant(
     # Добавляем участника
     participant = ChatParticipant(
         chat_id=chat_id,
-        user_id=user_id,
+        user_id=user.id,
         role="member"
     )
     db.add(participant)

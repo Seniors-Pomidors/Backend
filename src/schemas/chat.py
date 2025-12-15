@@ -9,7 +9,7 @@ class ChatBase(BaseModel):
 
 
 class ChatCreate(ChatBase):
-    participant_ids: List[int]
+    participant_usernames: List[str]
 
 
 class ChatResponse(ChatBase):
